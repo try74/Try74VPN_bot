@@ -8,7 +8,7 @@ from telebot.types import LabeledPrice, PreCheckoutQuery
 
 BOT_TOKEN = "8308510677:AAFXv0Q5Er4p-rM30JTrKobgyu4lHBTiXbw"
 ADMIN_ID = 6069286437
-VPN_PRICE_STARS = 35
+PRICE_STARS = 35
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 app = Flask(__name__)
@@ -34,16 +34,22 @@ def get_vpn_config():
 
 @bot.message_handler(commands=['start'])
 def start_command(message):
-    bot.reply_to(message, "🤖 <b>VPN Shop</b>\n\n💰 Цена: 35 Stars за ключ.\n/buy — купить", parse_mode="HTML")
+    bot.reply_to(
+        message,
+        f"🤖 <b>VPN Shop</b>\n\n"
+        f"💰 Цена: {PRICE_STARS} Stars за рабочий ключ.\n"
+        f"/buy — оплатить и получить ключ",
+        parse_mode="HTML"
+    )
 
 @bot.message_handler(commands=['buy'])
 def buy_command(message):
-    prices = [LabeledPrice(label="VPN ключ", amount=VPN_PRICE_STARS * 100)]
+    prices = [LabeledPrice(label="VPN ключ", amount=PRICE_STARS * 100)]
     try:
         bot.send_invoice(
             chat_id=message.chat.id,
             title="VPN ключ",
-            description=f"Рабочий VPN-ключ на 30 дней",
+            description=f"Рабочий VPN-ключ (30 дней)",
             invoice_payload=f"buy_{message.from_user.id}_{int(time.time())}",
             currency="XTR",
             prices=prices,
@@ -60,15 +66,21 @@ def process_pre_checkout(pre_checkout_query: PreCheckoutQuery):
 def process_successful_payment(message):
     config = get_vpn_config()
     if not config:
-        bot.send_message(ADMIN_ID, "⚠️ Ошибка получения VPN-конфига")
-        bot.reply_to(message, "❌ Не удалось получить ключ. Админ уведомлён.")
+        bot.send_message(ADMIN_ID, "⚠️ Не удалось получить конфиг")
+        bot.reply_to(message, "❌ Ошибка получения ключа. Администратор уведомлён.")
         return
     bot.reply_to(
         message,
-        f"✅ Оплата прошла!\n\n🔑 <b>Ваш ключ:</b>\n<code>{config}</code>\n\n📱 Импортируйте в v2rayNG или Streisand",
+        f"✅ <b>Оплата прошла!</b>\n\n"
+        f"🔑 <b>Ваш ключ:</b>\n"
+        f"<code>{config}</code>\n\n"
+        f"📱 <b>Как подключиться:</b>\n"
+        f"• Android: v2rayNG\n"
+        f"• iPhone: Streisand\n\n"
+        f"Импортируйте ссылку в приложение.",
         parse_mode="HTML"
     )
-    bot.send_message(ADMIN_ID, f"💰 Продажа! {message.from_user.id} купил ключ")
+    bot.send_message(ADMIN_ID, f"💰 Продажа! {message.from_user.id} купил ключ за {PRICE_STARS} Stars")
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
