@@ -2,7 +2,6 @@ import os
 import logging
 import requests
 import psycopg2
-import json
 import time
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify
@@ -19,12 +18,11 @@ bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 
-# ===== ПОДКЛЮЧЕНИЕ К БАЗЕ ДАННЫХ (PostgreSQL) =====
-DATABASE_URL = os.environ.get('DATABASE_URL')  # Render добавит эту переменную
+# ===== ПОДКЛЮЧЕНИЕ К БАЗЕ ДАННЫХ =====
+DATABASE_URL = os.environ.get('DATABASE_URL')
 
 def get_db_connection():
-    conn = psycopg2.connect(DATABASE_URL)
-    return conn
+    return psycopg2.connect(DATABASE_URL)
 
 def init_db():
     conn = get_db_connection()
@@ -51,7 +49,7 @@ def init_db():
 
 init_db()
 
-# ===== ФУНКЦИИ РАБОТЫ С БАЗОЙ =====
+# ===== ФУНКЦИИ БАЗЫ =====
 def save_subscription(user_id, username, expires_at, referrer_id=None):
     conn = get_db_connection()
     with conn.cursor() as cur:
@@ -93,7 +91,6 @@ def add_referral_bonus(referrer_id, amount_stars):
     if referrer_id:
         bonus = amount_stars * 0.2
         if bonus >= 1:
-            logging.info(f"Бонус {bonus} Stars для {referrer_id}")
             try:
                 bot.send_message(referrer_id, f"🎉 +{bonus:.0f} Stars за реферала!")
             except:
@@ -103,9 +100,6 @@ def add_referral_bonus(referrer_id, amount_stars):
 VPN_MIRRORS = [
     "https://github.com/nikita29a/FreeProxyList/raw/refs/heads/main/mirror/1.txt",
     "https://github.com/nikita29a/FreeProxyList/raw/refs/heads/main/mirror/2.txt",
-    "https://github.com/nikita29a/FreeProxyList/raw/refs/heads/main/mirror/3.txt",
-    "https://github.com/nikita29a/FreeProxyList/raw/refs/heads/main/mirror/4.txt",
-    "https://github.com/nikita29a/FreeProxyList/raw/refs/heads/main/mirror/5.txt",
 ]
 
 def get_vpn_config():
@@ -117,17 +111,15 @@ def get_vpn_config():
                 for line in lines:
                     line = line.strip()
                     if line.startswith(('vless://', 'vmess://', 'trojan://')):
-                        logging.info(f"Конфиг получен из {url}")
                         return line
-        except Exception as e:
-            logging.error(f"Ошибка {url}: {e}")
+        except Exception:
+            pass
     return None
 
-# ===== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =====
 def get_referral_link(user_id):
     return f"https://t.me/{bot.get_me().username}?start=ref_{user_id}"
 
-# ===== ОБРАБОТЧИКИ СООБЩЕНИЙ (через вебхук) =====
+# ===== КОМАНДЫ =====
 @bot.message_handler(commands=['start'])
 def start_command(message):
     user_id = message.from_user.id
@@ -147,7 +139,6 @@ def start_command(message):
         status_text = "❌ Нет активной подписки"
 
     if not sub:
-        # Сохраняем пользователя с датой в прошлом (не активен)
         save_subscription(user_id, username, datetime.now() - timedelta(days=1), referrer_id)
         if referrer_id:
             bot.send_message(referrer_id, f"🎉 Новый реферал: {username}")
@@ -173,7 +164,6 @@ def start_command(message):
 
 @bot.message_handler(commands=['buy'])
 def buy_command(message):
-    user_id = message.from_user.id
     price_amount = VPN_PRICE_STARS * 100
     prices = [LabeledPrice(label="VPN подписка (30 дней)", amount=price_amount)]
     try:
@@ -181,14 +171,12 @@ def buy_command(message):
             chat_id=message.chat.id,
             title="VPN Подписка",
             description=f"Доступ к VPN на 30 дней\nЦена: {VPN_PRICE_STARS} Stars",
-            invoice_payload=f"buy_{user_id}_{int(time.time())}",
+            invoice_payload=f"buy_{message.from_user.id}_{int(time.time())}",
             currency="XTR",
             prices=prices,
             start_parameter="vpn_subscription"
         )
-        logging.info(f"Инвойс отправлен {user_id}")
     except Exception as e:
-        logging.error(f"Ошибка инвойса: {e}")
         bot.reply_to(message, f"❌ Ошибка: {e}")
 
 @bot.pre_checkout_query_handler(func=lambda query: True)
@@ -205,7 +193,6 @@ def process_successful_payment(message):
     username = message.from_user.username or message.from_user.first_name
     amount_stars = payment_info.total_amount // 100
 
-    logging.info(f"Успешная оплата: {user_id} -> {amount_stars} Stars")
     save_payment(payment_info.telegram_payment_charge_id, user_id, amount_stars)
 
     referrer = get_referrer(user_id)
@@ -228,8 +215,8 @@ def process_successful_payment(message):
         f"🔑 <b>Ваш VPN-ключ:</b>\n"
         f"<code>{vpn_config}</code>\n\n"
         f"📱 <b>Как подключиться:</b>\n"
-        f"Android: <a href='https://play.google.com/store/apps/details?id=com.v2ray.ang'>v2rayNG</a>\n"
-        f"iPhone: <a href='https://apps.apple.com/app/streisand/id6450535064'>Streisand</a>\n\n"
+        f"Android: v2rayNG\n"
+        f"iPhone: Streisand\n\n"
         f"В приложении: Импорт → Вставить ссылку\n\n"
         f"⚡ Автопродление включено. Отменить: /cancel",
         parse_mode="HTML",
@@ -343,9 +330,8 @@ def index():
     return "Bot is running"
 
 if __name__ == '__main__':
-    # Удаляем старый вебхук
     bot.remove_webhook()
-    # Устанавливаем новый вебхук
     webhook_url = os.environ.get('RENDER_EXTERNAL_URL', '') + '/webhook'
-    bot.set_webhook(url=webhook_url)
+    if webhook_url:
+        bot.set_webhook(url=webhook_url)
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
