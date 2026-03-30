@@ -2,12 +2,15 @@ import os
 import logging
 import requests
 import time
+import socket
+import re
 from flask import Flask, request, jsonify
 import telebot
 from telebot.types import LabeledPrice, PreCheckoutQuery
 
-BOT_TOKEN = os.getenv('BOT_TOKEN')
-ADMIN_ID = int(os.getenv('ADMIN_ID', '6069286437'))
+# ===== НАСТРОЙКИ =====
+BOT_TOKEN = os.getenv('BOT_TOKEN', "8308510677:AAFXv0Q5Er4p-rM30JTrKobgyu4lHBTiXbw")
+ADMIN_ID = int(os.getenv('ADMIN_ID', "6069286437"))
 PRICE_STARS = 35
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
@@ -19,17 +22,43 @@ VPN_MIRRORS = [
     "https://github.com/nikita29a/FreeProxyList/raw/refs/heads/main/mirror/2.txt",
 ]
 
-def get_vpn_config():
+def extract_host_port_from_vless(link):
+    """Извлекает хост и порт из VLESS-ссылки."""
+    match = re.search(r'vless://[^@]+@([^:]+):(\d+)', link)
+    if match:
+        return match.group(1), int(match.group(2))
+    return None, None
+
+def check_vpn_config(config):
+    """Проверяет, доступен ли хост:порт по TCP."""
+    host, port = extract_host_port_from_vless(config)
+    if not host or not port:
+        return False
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        result = sock.connect_ex((host, port))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
+
+def get_working_vpn_config():
+    """Возвращает первый рабочий конфиг из зеркал."""
     for url in VPN_MIRRORS:
         try:
             r = requests.get(url, timeout=10)
-            if r.status_code == 200:
-                lines = r.text.strip().split('\n')
-                for line in lines:
-                    if line.startswith(('vless://', 'vmess://', 'trojan://')):
+            if r.status_code != 200:
+                continue
+            lines = r.text.strip().split('\n')
+            for line in lines:
+                line = line.strip()
+                if line.startswith(('vless://', 'vmess://', 'trojan://')):
+                    if check_vpn_config(line):
+                        logging.info(f"Рабочий конфиг: {url}")
                         return line
-        except Exception:
-            pass
+        except Exception as e:
+            logging.error(f"Ошибка {url}: {e}")
     return None
 
 @bot.message_handler(commands=['start'])
@@ -44,7 +73,7 @@ def start_command(message):
 
 @bot.message_handler(commands=['buy'])
 def buy_command(message):
-    prices = [LabeledPrice(label="VPN ключ", amount=PRICE_STARS)]
+    prices = [LabeledPrice(label="VPN ключ", amount=PRICE_STARS)]  # без умножения
     try:
         bot.send_invoice(
             chat_id=message.chat.id,
@@ -65,10 +94,10 @@ def process_pre_checkout(pre_checkout_query: PreCheckoutQuery):
 
 @bot.message_handler(content_types=['successful_payment'])
 def process_successful_payment(message):
-    config = get_vpn_config()
+    config = get_working_vpn_config()
     if not config:
-        bot.send_message(ADMIN_ID, "⚠️ Не удалось получить конфиг")
-        bot.reply_to(message, "❌ Ошибка получения ключа. Администратор уведомлён.")
+        bot.send_message(ADMIN_ID, "⚠️ Нет рабочих конфигов!")
+        bot.reply_to(message, "❌ Извините, сейчас нет доступных ключей. Администратор уведомлён.")
         return
     bot.reply_to(
         message,
