@@ -1,0 +1,4 @@
+Flask==2.3.3
+psycopg2-binary==2.9.9
+pyTelegramBotAPI==4.14.0
+requests==2.31.0
