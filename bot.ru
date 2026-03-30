@@ -8,7 +8,7 @@ from telebot.types import LabeledPrice, PreCheckoutQuery
 
 BOT_TOKEN = "8308510677:AAFXv0Q5Er4p-rM30JTrKobgyu4lHBTiXbw"
 ADMIN_ID = 6069286437
-VPN_PRICE_STARS = 45  # изменено на 45
+VPN_PRICE_STARS = 35
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 app = Flask(__name__)
@@ -34,7 +34,7 @@ def get_vpn_config():
 
 @bot.message_handler(commands=['start'])
 def start_command(message):
-    bot.reply_to(message, f"🤖 <b>VPN Shop</b>\n\n💰 Цена: {VPN_PRICE_STARS} Stars за ключ.\n/buy — купить", parse_mode="HTML")
+    bot.reply_to(message, "🤖 <b>VPN Shop</b>\n\n💰 Цена: 35 Stars за ключ.\n/buy — купить", parse_mode="HTML")
 
 @bot.message_handler(commands=['buy'])
 def buy_command(message):
@@ -68,7 +68,7 @@ def process_successful_payment(message):
         f"✅ Оплата прошла!\n\n🔑 <b>Ваш ключ:</b>\n<code>{config}</code>\n\n📱 Импортируйте в v2rayNG или Streisand",
         parse_mode="HTML"
     )
-    bot.send_message(ADMIN_ID, f"💰 Продажа! {message.from_user.id} купил ключ за {VPN_PRICE_STARS} Stars")
+    bot.send_message(ADMIN_ID, f"💰 Продажа! {message.from_user.id} купил ключ")
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
