@@ -67,7 +67,7 @@ def process_successful_payment(message):
     config = get_vpn_config()
     if not config:
         bot.send_message(ADMIN_ID, "⚠️ Не удалось получить конфиг")
-        bot.reply_to(message, "❌ Ошибка получения ключа. Администратор уведомлён.")
+        bot.reply_to(message, "❌ Ошибка получения ключа. Админ уведомлён.")
         return
     bot.reply_to(
         message,
