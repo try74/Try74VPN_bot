@@ -44,7 +44,7 @@ def start_command(message):
 
 @bot.message_handler(commands=['buy'])
 def buy_command(message):
-    prices = [LabeledPrice(label="VPN ключ", amount=PRICE_STARS * 100)]
+    prices = [LabeledPrice(label="VPN ключ", amount=PRICE_STARS)]
     try:
         bot.send_invoice(
             chat_id=message.chat.id,
