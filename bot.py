@@ -6,7 +6,7 @@ import socket
 import re
 import threading
 import random
-import concurrent.futures  # Для быстрой проверки ключей
+import concurrent.futures
 from flask import Flask, jsonify
 import telebot
 from telebot.types import LabeledPrice, PreCheckoutQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -21,7 +21,7 @@ logging.basicConfig(level=logging.INFO)
 
 WORKING_KEYS = []
 
-# МАКСИМАЛЬНЫЙ СПИСОК ИСТОЧНИКОВ (Обновляются часто)
+# ИСТОЧНИКИ
 VPN_MIRRORS = [
     "https://raw.githubusercontent.com/freev2ray/v2ray-free/master/v2ray",
     "https://raw.githubusercontent.com/vfarid/v2ray-share/main/all_configs.txt",
@@ -35,7 +35,7 @@ TARIF_PLANS = {
     "3_months": {"title": "3 месяца VPN", "price": 120, "desc": "Доступ на 90 дней"},
     "6_months": {"title": "6 месяцев VPN", "price": 200, "desc": "Доступ на 180 дней"},
     "1_year": {"title": "1 год VPN", "price": 350, "desc": "Доступ на 365 дней"},
-    "forever": {"title": "VPN Навсегда 🏍", "price": 1000, "desc": "Вечный доступ + огромная помощь автору"},
+    "forever": {"title": "VPN Навсегда 🏍", "price": 1000, "desc": "Вечный доступ + помощь автору"},
     "donate_50": {"title": "На бензин — 50 ⭐️", "price": 50, "desc": "Поддержка мечты"},
     "donate_100": {"title": "На шлем — 100 ⭐️", "price": 100, "desc": "Вклад в безопасность!"},
     "donate_500": {"title": "На колесо — 500 ⭐️", "price": 500, "desc": "Рывок к покупке байка!"},
@@ -44,7 +44,6 @@ TARIF_PLANS = {
 
 # --- ЛОГИКА ПРОВЕРКИ ---
 def extract_host_port(link):
-    # Регулярка для vless, vmess, trojan, ss
     match = re.search(r'://[^@]+@([^:]+):(\d+)', link)
     if match: return match.group(1), int(match.group(2))
     return None, None
@@ -53,52 +52,41 @@ def check_vpn_config(config):
     host, port = extract_host_port(config)
     if not host or not port: return False
     try:
-        # Пытаемся подключиться к порту сервера
         with socket.create_connection((host, port), timeout=2) as sock:
             return True
-    except:
-        return False
+    except: return False
 
 def update_keys_worker():
     global WORKING_KEYS
     while True:
-        logging.info("🚀 Ускоренный сбор и проверка ключей...")
+        logging.info("🚀 Обновление базы ключей...")
         all_raw_configs = []
-        
-        # Собираем сырые данные из всех ссылок
         for url in VPN_MIRRORS:
             try:
                 r = requests.get(url, timeout=10)
                 if r.status_code == 200:
                     found = re.findall(r'(vless://[^\s]+|vmess://[^\s]+|trojan://[^\s]+|ss://[^\s]+)', r.text)
                     all_raw_configs.extend(found)
-            except Exception as e:
-                logging.error(f"Ошибка парсинга {url}: {e}")
+            except: pass
         
-        # Убираем дубликаты и перемешиваем
         all_raw_configs = list(set(all_raw_configs))
         random.shuffle(all_raw_configs)
         
         temp_keys = []
-        # Проверяем ключи в 15 потоков одновременно
         with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
-            # Берем первые 150 ссылок для проверки, чтобы не перегружать память
             future_to_key = {executor.submit(check_vpn_config, k): k for k in all_raw_configs[:150]}
             for future in concurrent.futures.as_completed(future_to_key):
                 key = future_to_key[future]
                 try:
                     if future.result():
                         temp_keys.append(key)
-                    if len(temp_keys) >= 60: # Нам хватит 60 живых ключей
-                        break
-                except:
-                    pass
+                    if len(temp_keys) >= 60: break
+                except: pass
         
         WORKING_KEYS = temp_keys
-        logging.info(f"✨ База обновлена! Найдено {len(WORKING_KEYS)} живых серверов.")
-        time.sleep(300) # Обновление каждые 5 минут
+        logging.info(f"✨ База обновлена: {len(WORKING_KEYS)} ключей.")
+        time.sleep(300)
 
-# Запуск фонового процесса
 threading.Thread(target=update_keys_worker, daemon=True).start()
 
 # --- ОБРАБОТКА КОМАНД ---
@@ -112,9 +100,7 @@ def main_menu():
 def start(message):
     bot.send_message(
         message.chat.id,
-        "Привет! Коплю на электромотоцикл <b>Kugoo Wish 04</b> 🏍\n\n"
-        "Здесь можно купить VPN или задонатить в копилку.\n"
-        "<i>Мы автоматически выбираем рабочие узлы.</i>",
+        "Привет! Коплю на электромотоцикл <b>Kugoo Wish 04</b> 🏍\n\nЗдесь можно купить VPN или задонатить.",
         reply_markup=main_menu()
     )
 
@@ -122,7 +108,7 @@ def start(message):
 def test_payment(message):
     if message.from_user.id == ADMIN_ID:
         if not WORKING_KEYS:
-            bot.reply_to(message, "⚠️ База еще наполняется, подожди 10 секунд...")
+            bot.reply_to(message, "⚠️ Ищу ключи, попробуй через 10 секунд...")
             return
         key = WORKING_KEYS.pop(0)
         bot.reply_to(message, f"🛠 <b>ТЕСТОВЫЙ КЛЮЧ:</b>\n\n<code>{key}</code>\n\nОсталось: {len(WORKING_KEYS)}")
@@ -171,36 +157,41 @@ def checkout(query):
 def payment_done(message):
     payload = message.successful_payment.invoice_payload
     if "donate" in payload:
-        bot.reply_to(message, "❤️ Спасибо! Wish 04 стал на шаг ближе!")
+        bot.reply_to(message, "❤️ Спасибо за поддержку!")
         bot.send_message(ADMIN_ID, f"🎁 ДОНАТ: {message.successful_payment.total_amount} Stars")
         return
-
     if not WORKING_KEYS:
-        try:
-            bot.refund_star_payment(message.from_user.id, message.successful_payment.telegram_payment_charge_id)
-            bot.send_message(message.chat.id, "❌ Извините, ключи кончились. Сделан возврат средств!")
-        except: pass
+        bot.refund_star_payment(message.from_user.id, message.successful_payment.telegram_payment_charge_id)
+        bot.send_message(message.chat.id, "❌ Ключи кончились. Сделан возврат средств!")
         return
-
     key = WORKING_KEYS.pop(0)
-    bot.reply_to(message, f"✅ Оплата принята!\n\n🔑 Твой ключ:\n<code>{key}</code>")
+    bot.reply_to(message, f"✅ Оплата принята!\n\n🔑 Ключ:\n<code>{key}</code>")
     bot.send_message(ADMIN_ID, f"💰 ПРОДАЖА! +{message.successful_payment.total_amount} Stars")
 
 # --- ЗАПУСК ---
 @app.route('/')
 def index():
-    return f"Bot is running. Keys in base: {len(WORKING_KEYS)}"
+    return f"Bot is running. Keys: {len(WORKING_KEYS)}"
 
 if __name__ == '__main__':
-    bot.remove_webhook()
-    time.sleep(2)
+    # Принудительно чистим вебхук перед стартом
+    try:
+        bot.remove_webhook()
+    except:
+        pass
     
-    # Запуск Flask для Render
+    time.sleep(5) # Защита от ошибки 409
+    
     def run_web():
         app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
     
     threading.Thread(target=run_web, daemon=True).start()
     
-    # Запуск Polling
-    print("Бот запущен! Ищем ключи...")
-    bot.infinity_polling(skip_pending=True)
+    print("Бот запускается...")
+    # Бесконечный цикл перезапуска при конфликтах
+    while True:
+        try:
+            bot.infinity_polling(skip_pending=True, timeout=60)
+        except Exception as e:
+            logging.error(f"Ошибка Polling: {e}")
+            time.sleep(10)
