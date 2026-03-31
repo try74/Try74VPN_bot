@@ -18,9 +18,13 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 
 WORKING_KEYS = []
+# МАКСИМАЛЬНЫЙ СПИСОК ИСТОЧНИКОВ (Обновляются часто)
 VPN_MIRRORS = [
-    "https://github.com/nikita29a/FreeProxyList/raw/refs/heads/main/mirror/1.txt",
-    "https://github.com/nikita29a/FreeProxyList/raw/refs/heads/main/mirror/2.txt",
+    "https://raw.githubusercontent.com/freev2ray/v2ray-free/master/v2ray",
+    "https://raw.githubusercontent.com/vfarid/v2ray-share/main/all_configs.txt",
+    "https://raw.githubusercontent.com/Paw0/Share-V2ray/master/V2ray",
+    "https://raw.githubusercontent.com/ovpns/sub/master/vless",
+    "https://raw.githubusercontent.com/erfantkerfan/free-v2ray-config/main/configs.txt"
 ]
 
 TARIF_PLANS = {
@@ -35,9 +39,10 @@ TARIF_PLANS = {
     "donate_1000": {"title": "Меценат — 1000 ⭐️", "price": 1000, "desc": "Ты лучший!"}
 }
 
-# --- ЛОГИКА ПРОВЕРКИ КЛЮЧЕЙ ---
+# --- УЛУЧШЕННАЯ ЛОГИКА ---
 def extract_host_port(link):
-    match = re.search(r'vless://[^@]+@([^:]+):(\d+)', link)
+    # Поддержка vless, vmess, trojan, ss
+    match = re.search(r'://[^@]+@([^:]+):(\d+)', link)
     if match: return match.group(1), int(match.group(2))
     return None, None
 
@@ -45,29 +50,36 @@ def check_vpn_config(config):
     host, port = extract_host_port(config)
     if not host or not port: return False
     try:
-        with socket.create_connection((host, port), timeout=3) as sock:
+        # Быстрая проверка порта
+        with socket.create_connection((host, port), timeout=2) as sock:
             return True
     except: return False
 
 def update_keys_worker():
     global WORKING_KEYS
     while True:
-        logging.info("Фоновое обновление ключей...")
+        logging.info("🚀 Глубокое сканирование ключей...")
         temp_keys = []
         for url in VPN_MIRRORS:
             try:
-                r = requests.get(url, timeout=10)
+                r = requests.get(url, timeout=15)
                 if r.status_code == 200:
-                    lines = r.text.strip().split('\n')
-                    for line in lines[:50]:
+                    # Извлекаем всё, что похоже на конфиги
+                    lines = re.findall(r'(vless://[^\s]+|vmess://[^\s]+|trojan://[^\s]+|ss://[^\s]+)', r.text)
+                    for line in lines:
                         line = line.strip()
-                        if line.startswith('vless://') and check_vpn_config(line):
-                            temp_keys.append(line)
-                            if len(temp_keys) >= 20: break
+                        if check_vpn_config(line):
+                            if line not in temp_keys:
+                                temp_keys.append(line)
+                        if len(temp_keys) >= 60: break # Собираем до 60 штук
             except: pass
+        
+        # Перемешиваем, чтобы не выдавать всем одно и то же
+        import random
+        random.shuffle(temp_keys)
         WORKING_KEYS = temp_keys
-        logging.info(f"Готово! Ключей в базе: {len(WORKING_KEYS)}")
-        time.sleep(600)
+        logging.info(f"✨ База заполнена! Найдено {len(WORKING_KEYS)} живых серверов.")
+        time.sleep(300) # Обновляем чаще - каждые 5 минут
 
 threading.Thread(target=update_keys_worker, daemon=True).start()
 
@@ -83,31 +95,21 @@ def start(message):
     bot.send_message(
         message.chat.id,
         "Привет! Коплю на электромотоцикл <b>Kugoo Wish 04</b> 🏍\n\n"
-        "Здесь можно купить VPN или просто задонатить в копилку.",
+        "Здесь можно купить VPN или просто задонатить в копилку.\n"
+        "<i>Используем агрегатор лучших бесплатных узлов.</i>",
         reply_markup=main_menu()
     )
 
-# СЕКРЕТНАЯ КОМАНДА ДЛЯ ТЕСТА (БЕСПЛАТНО)
 @bot.message_handler(commands=['test_pay'])
 def test_payment(message):
     if message.from_user.id == ADMIN_ID:
         if not WORKING_KEYS:
-            bot.reply_to(message, "⚠️ База пуста! Подожди обновления ключей.")
+            bot.reply_to(message, "⚠️ Ищу ключи, подожди минуту...")
             return
-        
-        # Берем ключ как при реальной оплате
         key = WORKING_KEYS.pop(0)
-        bot.reply_to(
-            message, 
-            f"🛠 <b>ТЕСТОВЫЙ ПЛАТЕЖ (БЕСПЛАТНО)</b>\n\n"
-            f"✅ Имитация оплаты прошла успешно!\n"
-            f"🔑 Твой ключ:\n<code>{key}</code>\n\n"
-            f"Осталось ключей в базе: {len(WORKING_KEYS)}"
-        )
-        # Уведомляем админа (самого себя)
-        bot.send_message(ADMIN_ID, "💰 ТЕСТ: Имитация продажи VPN (1 месяц)")
+        bot.reply_to(message, f"🛠 <b>ТЕСТОВЫЙ КЛЮЧ:</b>\n\n<code>{key}</code>\n\nОсталось: {len(WORKING_KEYS)}")
     else:
-        bot.reply_to(message, "❌ У тебя нет прав для этой команды.")
+        bot.reply_to(message, "❌ Нет прав.")
 
 @bot.callback_query_handler(func=lambda call: call.data == "show_tarifs")
 def tarifs(call):
@@ -151,14 +153,14 @@ def checkout(query):
 def payment_done(message):
     payload = message.successful_payment.invoice_payload
     if "donate" in payload:
-        bot.reply_to(message, "❤️ Спасибо за донат! Мечта стала ближе!")
+        bot.reply_to(message, "❤️ Спасибо! Wish 04 стал еще ближе!")
         bot.send_message(ADMIN_ID, f"🎁 ДОНАТ: {message.successful_payment.total_amount} Stars")
         return
 
     if not WORKING_KEYS:
         try:
             bot.refund_star_payment(message.from_user.id, message.successful_payment.telegram_payment_charge_id)
-            bot.send_message(message.chat.id, "❌ Ключи кончились. Деньги возвращены!")
+            bot.send_message(message.chat.id, "❌ Ключи кончились. Сделан возврат!")
         except: pass
         return
 
@@ -173,12 +175,8 @@ def index():
 
 if __name__ == '__main__':
     bot.remove_webhook()
-    time.sleep(1)
-    
+    time.sleep(2)
     def run_web():
         app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
-    
     threading.Thread(target=run_web, daemon=True).start()
-    
-    print("Бот запущен через Polling!")
     bot.infinity_polling(skip_pending=True)
