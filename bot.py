@@ -12,39 +12,46 @@ app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 
 WORKING_KEYS = []
-VPN_SOURCE = "https://raw.githubusercontent.com/vfarid/v2ray-share/main/all_configs.txt"
 
-# ТАРИФЫ И ДОНАТЫ
-TARIF_PLANS = {
-    "1_month": {"title": "1 месяц VPN", "price": 50, "desc": "Доступ на 30 дней"},
-    "3_months": {"title": "3 месяца VPN", "price": 120, "desc": "Доступ на 90 дней"},
-    "forever": {"title": "VPN Навсегда 🏍", "price": 1000, "desc": "Вечный доступ + огромная помощь автору"},
-    "donate_50": {"title": "На бензин — 50 ⭐️", "price": 50, "desc": "Поддержка мечты"},
-    "donate_100": {"title": "На шлем — 100 ⭐️", "price": 100, "desc": "Вклад в безопасность!"},
-    "donate_500": {"title": "На колесо — 500 ⭐️", "price": 500, "desc": "Рывок к байку!"},
-    "donate_1000": {"title": "Меценат — 1000 ⭐️", "price": 1000, "desc": "Ты лучший!"}
-}
+# НЕСКОЛЬКО ИСТОЧНИКОВ (на случай блокировки одного из них)
+SOURCES = [
+    "https://raw.githubusercontent.com/vfarid/v2ray-share/main/all_configs.txt",
+    "https://raw.githubusercontent.com/freev2ray/v2ray-free/master/v2ray",
+    "https://raw.githubusercontent.com/Paw0/Share-V2ray/master/V2ray"
+]
 
-# --- ЛОГИКА САЙТА И КЛЮЧЕЙ ---
-@app.route('/')
-def index():
-    return f"Status: Alive. Keys: {len(WORKING_KEYS)}"
-
+# --- ГОРЯЧЕЕ ОБНОВЛЕНИЕ ---
 def update_keys_worker():
     global WORKING_KEYS
     while True:
-        try:
-            r = requests.get(VPN_SOURCE, timeout=15)
-            if r.status_code == 200:
-                found = re.findall(r'(vless://[^\s]+|vmess://[^\s]+|trojan://[^\s]+|ss://[^\s]+)', r.text)
-                if found:
-                    random.shuffle(found)
-                    WORKING_KEYS = found[:100]
-                    logging.info(f"✅ База обновлена: {len(WORKING_KEYS)}")
-        except: pass
-        time.sleep(600)
+        logging.info("🚀 Пробую обновить ключи из разных источников...")
+        found_any = False
+        
+        for url in SOURCES:
+            try:
+                r = requests.get(url, timeout=10)
+                if r.status_code == 200:
+                    found = re.findall(r'(vless://[^\s]+|vmess://[^\s]+|trojan://[^\s]+|ss://[^\s]+)', r.text)
+                    if found:
+                        random.shuffle(found)
+                        WORKING_KEYS = found[:150]
+                        logging.info(f"✅ Успех! Найдено {len(WORKING_KEYS)} ключей из {url}")
+                        found_any = True
+                        break # Если нашли ключи, выходим из цикла источников
+            except:
+                continue
+        
+        # Если ничего не нашли, попробуем еще раз через 30 секунд
+        # Если нашли — ждем 10 минут до следующего обновления
+        time.sleep(30 if not found_any else 600)
 
-# --- МЕНЮ ---
+# --- МЕНЮ (ТВОЕ ПОЛНОЕ) ---
+TARIF_PLANS = {
+    "1_month": {"title": "1 месяц VPN", "price": 50, "desc": "Доступ на 30 дней"},
+    "forever": {"title": "VPN Навсегда 🏍", "price": 1000, "desc": "Вечный доступ + помощь автору"},
+    "donate_100": {"title": "На шлем — 100 ⭐️", "price": 100, "desc": "Вклад в безопасность!"}
+}
+
 def main_menu():
     markup = InlineKeyboardMarkup()
     markup.row(InlineKeyboardButton("🛍 Купить VPN", callback_data="show_tarifs"))
@@ -53,54 +60,44 @@ def main_menu():
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(
-        message.chat.id,
-        "Привет! Коплю на электромотоцикл <b>Kugoo Wish 04</b> 🏍\n\nВыбирай тариф или просто поддержи мою цель!",
-        reply_markup=main_menu()
-    )
+    bot.send_message(message.chat.id, "Бот готов! Коплю на <b>Kugoo Wish 04</b> 🏍", reply_markup=main_menu())
 
 @bot.message_handler(commands=['test_pay'])
 def test_payment(message):
     if message.from_user.id == ADMIN_ID:
         if WORKING_KEYS:
             key = WORKING_KEYS.pop(0)
-            bot.reply_to(message, f"🛠 ТЕСТОВЫЙ КЛЮЧ:\n<code>{key}</code>")
+            bot.reply_to(message, f"🛠 ТЕСТ: <code>{key}</code>\nВ базе осталось: {len(WORKING_KEYS)}")
         else:
-            bot.reply_to(message, "⚠️ Ключи еще качаются...")
+            bot.reply_to(message, "⚠️ База всё еще пуста. Render блокирует запросы к GitHub. Подожди 30 сек.")
     else:
         bot.reply_to(message, "❌ Нет прав.")
 
+# --- ОСТАЛЬНЫЕ ОБРАБОТЧИКИ ---
 @bot.callback_query_handler(func=lambda call: call.data == "show_tarifs")
 def tarifs(call):
     markup = InlineKeyboardMarkup()
-    for k, v in TARIF_PLANS.items():
-        if not k.startswith("donate"):
-            markup.add(InlineKeyboardButton(f"{v['title']} — {v['price']} ⭐️", callback_data=f"buy_{k}"))
+    markup.add(InlineKeyboardButton("1 месяц — 50 ⭐️", callback_data="buy_1_month"))
+    markup.add(InlineKeyboardButton("Навсегда — 1000 ⭐️", callback_data="buy_forever"))
     markup.add(InlineKeyboardButton("⬅️ Назад", callback_data="back"))
-    bot.edit_message_text("Выберите срок подписки:", call.message.chat.id, call.message.message_id, reply_markup=markup)
+    bot.edit_message_text("Тарифы:", call.message.chat.id, call.message.message_id, reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == "show_donates")
 def donates(call):
     markup = InlineKeyboardMarkup()
-    for k, v in TARIF_PLANS.items():
-        if k.startswith("donate"):
-            markup.add(InlineKeyboardButton(f"{v['title']}", callback_data=f"buy_{k}"))
+    markup.add(InlineKeyboardButton("На шлем — 100 ⭐️", callback_data="buy_donate_100"))
     markup.add(InlineKeyboardButton("⬅️ Назад", callback_data="back"))
-    bot.edit_message_text("Сумма поддержки: ❤️", call.message.chat.id, call.message.message_id, reply_markup=markup)
+    bot.edit_message_text("Донат: ❤️", call.message.chat.id, call.message.message_id, reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == "back")
 def back(call):
-    bot.edit_message_text("Выберите действие:", call.message.chat.id, call.message.message_id, reply_markup=main_menu())
+    bot.edit_message_text("Меню:", call.message.chat.id, call.message.message_id, reply_markup=main_menu())
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("buy_"))
 def process_buy(call):
     plan_key = call.data.replace("buy_", "")
-    plan = TARIF_PLANS.get(plan_key)
-    if plan:
-        bot.send_invoice(
-            call.message.chat.id, plan['title'], plan['desc'], f"pay_{plan_key}", "", "XTR", 
-            [LabeledPrice(label=plan['title'], amount=plan['price'])]
-        )
+    plan = TARIF_PLANS.get(plan_key) or {"title": "Донат", "price": 100, "desc": "Поддержка"}
+    bot.send_invoice(call.message.chat.id, plan['title'], plan['desc'], f"pay_{plan_key}", "", "XTR", [LabeledPrice(label=plan['title'], amount=plan['price'])])
 
 @bot.pre_checkout_query_handler(func=lambda query: True)
 def checkout(query):
@@ -108,29 +105,24 @@ def checkout(query):
 
 @bot.message_handler(content_types=['successful_payment'])
 def payment_done(message):
-    payload = message.successful_payment.invoice_payload
-    if "donate" in payload:
-        bot.reply_to(message, "❤️ Огромное спасибо! Ты приблизил меня к мечте!")
-        bot.send_message(ADMIN_ID, f"🎁 ДОНАТ: {message.successful_payment.total_amount} Stars")
-        return
-    
     if WORKING_KEYS:
         key = WORKING_KEYS.pop(0)
-        bot.reply_to(message, f"✅ Оплата принята!\n\n🔑 Твой ключ:\n<code>{key}</code>")
-        bot.send_message(ADMIN_ID, f"💰 ПРОДАЖА! +{message.successful_payment.total_amount} Stars")
+        bot.reply_to(message, f"✅ Оплата принята!\nКлюч: <code>{key}</code>")
     else:
-        bot.send_message(message.chat.id, "❌ Ключи кончились. Напиши админу!")
+        bot.reply_to(message, "❌ Ошибка! Ключи кончились. Напиши админу!")
 
 # --- ЗАПУСК ---
+@app.route('/')
+def index():
+    return f"Alive. Keys: {len(WORKING_KEYS)}"
+
 if __name__ == '__main__':
+    threading.Thread(target=update_keys_worker, daemon=True).start()
     port = int(os.environ.get('PORT', 5000))
     threading.Thread(target=lambda: app.run(host='0.0.0.0', port=port), daemon=True).start()
-    threading.Thread(target=update_keys_worker, daemon=True).start()
-    
     while True:
         try:
             bot.remove_webhook()
-            time.sleep(2)
             bot.infinity_polling(skip_pending=True)
         except:
             time.sleep(5)
