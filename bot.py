@@ -10,7 +10,6 @@ import telebot
 from telebot.types import LabeledPrice, PreCheckoutQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 # ===== НАСТРОЙКИ =====
-# Твой токен и ID админа
 BOT_TOKEN = "8308510677:AAFXv0Q5Er4p-rM30JTrKobgyu4lHBTiXbw"
 ADMIN_ID = 6069286437
 
@@ -18,14 +17,12 @@ bot = telebot.TeleBot(BOT_TOKEN, parse_mode="HTML")
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 
-# База ключей в памяти
 WORKING_KEYS = []
 VPN_MIRRORS = [
     "https://github.com/nikita29a/FreeProxyList/raw/refs/heads/main/mirror/1.txt",
     "https://github.com/nikita29a/FreeProxyList/raw/refs/heads/main/mirror/2.txt",
 ]
 
-# ТАРИФЫ И ДОНАТЫ
 TARIF_PLANS = {
     "1_month": {"title": "1 месяц VPN", "price": 50, "desc": "Доступ на 30 дней"},
     "3_months": {"title": "3 месяца VPN", "price": 120, "desc": "Доступ на 90 дней"},
@@ -72,7 +69,6 @@ def update_keys_worker():
         logging.info(f"Готово! Ключей в базе: {len(WORKING_KEYS)}")
         time.sleep(600)
 
-# Запуск фонового потока проверки
 threading.Thread(target=update_keys_worker, daemon=True).start()
 
 # --- ОБРАБОТКА КОМАНД ---
@@ -90,6 +86,28 @@ def start(message):
         "Здесь можно купить VPN или просто задонатить в копилку.",
         reply_markup=main_menu()
     )
+
+# СЕКРЕТНАЯ КОМАНДА ДЛЯ ТЕСТА (БЕСПЛАТНО)
+@bot.message_handler(commands=['test_pay'])
+def test_payment(message):
+    if message.from_user.id == ADMIN_ID:
+        if not WORKING_KEYS:
+            bot.reply_to(message, "⚠️ База пуста! Подожди обновления ключей.")
+            return
+        
+        # Берем ключ как при реальной оплате
+        key = WORKING_KEYS.pop(0)
+        bot.reply_to(
+            message, 
+            f"🛠 <b>ТЕСТОВЫЙ ПЛАТЕЖ (БЕСПЛАТНО)</b>\n\n"
+            f"✅ Имитация оплаты прошла успешно!\n"
+            f"🔑 Твой ключ:\n<code>{key}</code>\n\n"
+            f"Осталось ключей в базе: {len(WORKING_KEYS)}"
+        )
+        # Уведомляем админа (самого себя)
+        bot.send_message(ADMIN_ID, "💰 ТЕСТ: Имитация продажи VPN (1 месяц)")
+    else:
+        bot.reply_to(message, "❌ У тебя нет прав для этой команды.")
 
 @bot.callback_query_handler(func=lambda call: call.data == "show_tarifs")
 def tarifs(call):
@@ -154,16 +172,13 @@ def index():
     return f"Bot is running. Keys: {len(WORKING_KEYS)}"
 
 if __name__ == '__main__':
-    # 1. Удаляем вебхук навсегда
     bot.remove_webhook()
     time.sleep(1)
     
-    # 2. Запускаем Flask в фоне (для Render)
     def run_web():
         app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
     
     threading.Thread(target=run_web, daemon=True).start()
     
-    # 3. Запускаем Polling (прямой опрос)
     print("Бот запущен через Polling!")
     bot.infinity_polling(skip_pending=True)
